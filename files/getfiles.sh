@@ -1,13 +1,15 @@
 #!/bin/bash
 
-# This script reads info about all files in a project and puts info to a mongo db
+# This script reads info about all files in a project (or projects) and puts info to a mongo db
 # Could also be modified to output to a csv file, etc..
 # The basic idea is to request folder contents, starting from BIM project top folders (like Plans, Project Files..)
-# and then get details for folder contents. If contents contain files, get item details. If contents are more folder, add those folders
+# and then get details for folder contents. If contents contain files, get item details. If contents are more (sub)folders, add those folders
 # to a "to-do" list and repeat until all folders are checked
+# script takes as input a list of project ids (project_ids.txt)
 
 account_id=`cat ~/account_id.txt`
 
+options="-s"
 
 foldercontents () {
 
@@ -15,7 +17,7 @@ foldercontents () {
 
   curl $options -o folder.json $urn -H 'Authorization: Bearer '$access_token''
 
-  mongoimport --db bim --collection folder --file folder.json
+  mongoimport --quiet --db bim --collection folder --file folder.json
 
   nextlist=()
     for value in "${urn[@]}"
@@ -39,6 +41,8 @@ foldercontents () {
     item_id=$(_jq '.id')
     item_type=$(_jq '.attributes.extension.type')
 
+    # check folder contents:
+
     if [ $item_type = "folders:autodesk.bim360:Folder" ]
       then urn+=( 'https://developer.api.autodesk.com/data/v1/projects/b.'$project_id'/folders/'$item_id'/contents?page%5Blimit%5D='$pagelimit'' )
       else itemdata "$item_id"
@@ -56,17 +60,17 @@ itemdata () {
   item_urn=$(echo 'https://developer.api.autodesk.com/data/v1/projects/b.'$project_id'/items/'$item_id'')
   curl $options -o item.json $item_urn -H 'Authorization: Bearer '$access_token''
 
-  mongoimport --db bim --collection item --file item.json
+  mongoimport --quiet --db bim --collection item --file item.json
 
   tip_urn=$(echo 'https://developer.api.autodesk.com/data/v1/projects/b.'$project_id'/items/'$item_id'/tip')
   curl $options -o tip.json $tip_urn -H 'Authorization: Bearer '$access_token''
 
-  mongoimport --db bim --collection tip --file tip.json
+  mongoimport --quiet --db bim --collection tip --file tip.json
 
   parent_urn=$(echo 'https://developer.api.autodesk.com/data/v1/projects/b.'$project_id'/items/'$item_id'/parent')
   curl $options -o parent.json $parent_urn -H 'Authorization: Bearer '$access_token''
 
-  mongoimport --db bim --collection parent --file parent.json
+  mongoimport --quiet --db bim --collection parent --file parent.json
 
 }
 
@@ -80,7 +84,7 @@ start=`date +%s`
   curl $options -o topfolder.json 'https://developer.api.autodesk.com/project/v1/hubs/b.'$account_id'/projects/b.'$project_id'/topFolders' \
     -H 'Authorization: Bearer '$access_token''
 
-  mongoimport --db bim --collection topfolder --file topfolder.json
+  mongoimport --quiet --db bim --collection topfolder --file topfolder.json
 
   for row in $(jq -r '.data[] | @base64' topfolder.json); do
     _jq() {
@@ -90,7 +94,7 @@ start=`date +%s`
     topfolder_id=$(_jq '.id')
     topfolder_name=$(_jq '.attributes.displayName')
 
-  urn+=( 'https://developer.api.autodesk.com/data/v1/projects/b.'$project_id'/folders/'$topfolder_id'/contents' )
+    urn+=( 'https://developer.api.autodesk.com/data/v1/projects/b.'$project_id'/folders/'$topfolder_id'/contents' )
 
     while (( ${#urn[@]} )); do
 
